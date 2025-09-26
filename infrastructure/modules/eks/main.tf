@@ -37,6 +37,7 @@ resource "aws_iam_role" "eks_node_role" {
   })
 }
 
+# --- Policies for the Worker Nodes ---
 resource "aws_iam_role_policy_attachment" "eks_worker_node_policy" {
   policy_arn = "arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy"
   role       = aws_iam_role.eks_node_role.name
@@ -51,6 +52,8 @@ resource "aws_iam_role_policy_attachment" "ec2_container_registry_read_only" {
   policy_arn = "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
   role       = aws_iam_role.eks_node_role.name
 }
+# --- End of Node Policies ---
+
 
 # Create the EKS Cluster
 resource "aws_eks_cluster" "main" {
@@ -59,9 +62,8 @@ resource "aws_eks_cluster" "main" {
 
   vpc_config {
     subnet_ids = var.private_subnet_ids
-    # Restrict access to the API server endpoint to within the VPC for security
     endpoint_private_access = true
-    endpoint_public_access  = true # Set to true to allow kubectl from local machine
+    endpoint_public_access  = true
   }
 
   depends_on = [
@@ -76,15 +78,13 @@ resource "aws_eks_node_group" "main" {
   node_role_arn   = aws_iam_role.eks_node_role.arn
   subnet_ids      = var.private_subnet_ids
 
-  # Define the size and type of the worker nodes
-  instance_types = ["t2.micro"] # Use t2.micro for free tier eligibility
+  instance_types = ["t2.micro"]
   scaling_config {
-    desired_size = 2 # Start with 2 nodes
-    max_size     = 3 # Scale up to 3
-    min_size     = 1 # Scale down to 1
+    desired_size = 2
+    max_size     = 3
+    min_size     = 1
   }
 
-  # Ensure nodes are updated gracefully
   update_config {
     max_unavailable = 1
   }
