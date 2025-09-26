@@ -10,20 +10,16 @@ on:
     branches:
       - main
 
-# A workflow run is made up of one or more jobs that can run sequentially or in parallel
 jobs:
-  # This job runs first. It ensures our AWS infrastructure is up-to-date.
+  # JOB 1: Provision Infrastructure
+  # This job runs first. It ensures our AWS infrastructure (like ECR) is ready.
   provision-infrastructure:
     name: Provision Infrastructure
     runs-on: ubuntu-latest
-
     steps:
-      # Step 1: Check out the repository code
       - name: Check out code
         uses: actions/checkout@v3
 
-      # Step 2: Configure AWS credentials
-      # This action uses our GitHub secrets to log in to AWS
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v2
         with:
@@ -31,42 +27,32 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ap-south-1
 
-      # Step 3: Setup Terraform
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v2
-        with:
-          terraform_version: 1.5.0 # Specify a version
 
-      # Step 4: Terraform Init
-      # Initializes Terraform with our S3 backend
       - name: Terraform Init
         run: terraform init
         working-directory: ./infrastructure
 
-      # Step 5: Terraform Validate
-      # A quick check to ensure the Terraform code is syntactically valid
-      - name: Terraform Validate
-        run: terraform validate
-        working-directory: ./infrastructure
-
-      # Step 6: Terraform Apply
-      # Applies any pending infrastructure changes (like creating the ECR repo)
       - name: Terraform Apply
         run: terraform apply -auto-approve
         working-directory: ./infrastructure
 
-  # This job runs second, only after the infrastructure is successfully provisioned.
+  # JOB 2: Build and Push Docker Image
+  # This job runs after the infrastructure is ready.
+  # It builds our app and pushes the container to ECR.
   build-and-push-image:
     name: Build and Push Docker Image
     runs-on: ubuntu-latest
-    needs: provision-infrastructure # This job will not start until the provision-infrastructure job is successful
-
+    needs: provision-infrastructure
+    # We define outputs here to pass the image details to the deploy job
+    outputs:
+      image_tag: ${{ steps.build-image.outputs.image_tag }}
+      ecr_registry: ${{ steps.login-ecr.outputs.registry }}
     steps:
-      # Step 1: Check out the repository code
       - name: Check out code
         uses: actions/checkout@v3
 
-      # Step 2: Configure AWS credentials
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v2
         with:
@@ -74,19 +60,53 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ap-south-1
 
-      # Step 3: Log in to Amazon ECR
-      # ECR is our private Docker registry
       - name: Log in to Amazon ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v1
 
-      # Step 4: Build and push the Docker image
-      # This step uses the ECR login information from the previous step
       - name: Build and push Docker image to ECR
+        id: build-image
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          ECR_REPOSITORY: penta-portfolio-app # This name must match the one in terraform
-          IMAGE_TAG: ${{ github.sha }} # Use the commit SHA as a unique image tag
+          ECR_REPOSITORY: penta-portfolio-app
+          IMAGE_TAG: ${{ github.sha }}
         run: |
           docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG ./app
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          # Use GITHUB_OUTPUT to set the output for other jobs
+          echo "image_tag=${{ github.sha }}" >> $GITHUB_OUTPUT
+
+  # JOB 3: Deploy to EKS
+  # This job runs last, after the infrastructure is ready AND the image has been pushed.
+  deploy-to-eks:
+    name: Deploy to EKS with Helm
+    runs-on: ubuntu-latest
+    needs: [provision-infrastructure, build-and-push-image]
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v3
+
+      - name: Configure AWS credentials using OIDC
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          # This uses the secure, temporary credentials from the role we created
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ap-south-1
+          role-duration-seconds: 1200
+
+      - name: Set up Kubeconfig for EKS
+        run: aws eks update-kubeconfig --name penta-ai-test --region ap-south-1
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v3
+        with:
+          version: v3.12.0 # Use a specific version of Helm
+
+      - name: Deploy application with Helm
+        run: |
+          helm upgrade --install penta-portfolio ./helm/penta-portfolio \
+            --set image.repository=${{ needs.build-and-push-image.outputs.ecr_registry }}/penta-portfolio-app \
+            --set image.tag=${{ needs.build-and-push-image.outputs.image_tag }} \
+            --namespace default \
+            --wait
