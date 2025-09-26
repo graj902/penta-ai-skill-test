@@ -33,7 +33,7 @@ data "aws_iam_policy_document" "github_actions_assume_role" {
       # !!! IMPORTANT !!! 
       # Change "gururaj-penta-ai" to your actual GitHub username.
       # =======================================================================
-      values   = ["repo:gururaj-penta-ai/penta-ai-skill-test:*"]
+      values   = ["repo:graj902/penta-ai-skill-test:*"]
     }
   }
 }
