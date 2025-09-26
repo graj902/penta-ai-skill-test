@@ -12,10 +12,10 @@ on:
 
 # A workflow run is made up of one or more jobs that can run sequentially or in parallel
 jobs:
-  # This job handles building, testing, and pushing the application image
-  build-and-push-image:
-    name: Build and Push Docker Image
-    runs-on: ubuntu-latest # Use a GitHub-hosted runner
+  # This job runs first. It ensures our AWS infrastructure is up-to-date.
+  provision-infrastructure:
+    name: Provision Infrastructure
+    runs-on: ubuntu-latest
 
     steps:
       # Step 1: Check out the repository code
@@ -24,42 +24,6 @@ jobs:
 
       # Step 2: Configure AWS credentials
       # This action uses our GitHub secrets to log in to AWS
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v2
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ap-south-1
-
-      # Step 3: Log in to Amazon ECR
-      # ECR is our private Docker registry
-      - name: Log in to Amazon ECR
-        id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v1
-
-      # Step 4: Build and push the Docker image
-      # This step uses the ECR login information from the previous step
-      - name: Build and push Docker image to ECR
-        env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          ECR_REPOSITORY: penta-portfolio-app # We will create this repo
-          IMAGE_TAG: ${{ github.sha }} # Use the commit SHA as a unique image tag
-        run: |
-          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG ./app
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
-
-  # This job handles deploying the infrastructure and application
-  deploy:
-    name: Deploy to EKS
-    runs-on: ubuntu-latest
-    needs: build-and-push-image # This job will not start until the build job is successful
-
-    steps:
-      # Step 1: Check out the repository code
-      - name: Check out code
-        uses: actions/checkout@v3
-
-      # Step 2: Configure AWS credentials
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v2
         with:
@@ -86,10 +50,43 @@ jobs:
         working-directory: ./infrastructure
 
       # Step 6: Terraform Apply
-      # Applies any pending infrastructure changes
+      # Applies any pending infrastructure changes (like creating the ECR repo)
       - name: Terraform Apply
         run: terraform apply -auto-approve
         working-directory: ./infrastructure
 
-      # NOTE: The Helm deployment steps will be added here in our next iteration.
-      # For now, this pipeline will build the image and confirm the infrastructure.
+  # This job runs second, only after the infrastructure is successfully provisioned.
+  build-and-push-image:
+    name: Build and Push Docker Image
+    runs-on: ubuntu-latest
+    needs: provision-infrastructure # This job will not start until the provision-infrastructure job is successful
+
+    steps:
+      # Step 1: Check out the repository code
+      - name: Check out code
+        uses: actions/checkout@v3
+
+      # Step 2: Configure AWS credentials
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ap-south-1
+
+      # Step 3: Log in to Amazon ECR
+      # ECR is our private Docker registry
+      - name: Log in to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v1
+
+      # Step 4: Build and push the Docker image
+      # This step uses the ECR login information from the previous step
+      - name: Build and push Docker image to ECR
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: penta-portfolio-app # This name must match the one in terraform
+          IMAGE_TAG: ${{ github.sha }} # Use the commit SHA as a unique image tag
+        run: |
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG ./app
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
