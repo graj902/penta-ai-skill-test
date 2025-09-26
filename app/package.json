@@ -1,0 +1,13 @@
+{
+    "name": "penta-portfolio-app",
+    "version": "1.0.0",
+    "description": "A simple portfolio application for the Penta AI skill test.",
+    "main": "src/index.js",
+    "scripts": {
+      "start": "node src/index.js"
+    },
+    "dependencies": {
+      "@aws-sdk/client-ssm": "^3.509.0",
+      "express": "^4.18.2"
+    }
+  }
