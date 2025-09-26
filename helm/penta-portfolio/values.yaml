@@ -1,0 +1,12 @@
+# Default values for penta-portfolio chart.
+replicaCount: 2 # Run two pods for availability
+
+image:
+  repository: YOUR_ECR_REPOSITORY_URI # We will replace this in the pipeline
+  tag: latest # We will replace this with the commit SHA
+  pullPolicy: IfNotPresent
+
+service:
+  type: LoadBalancer # Expose the service to the internet via a Classic Load Balancer
+  port: 80
+  targetPort: 8080 # The port our container listens on
