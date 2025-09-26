@@ -1,7 +1,5 @@
 name: CI/CD Pipeline for Portfolio App
 
-# This workflow runs on every push to the 'main' branch
-# and on every pull request that targets the 'main' branch.
 on:
   push:
     branches:
@@ -12,58 +10,47 @@ on:
 
 jobs:
   # JOB 1: Provision Infrastructure
-  # This job runs first. It ensures our AWS infrastructure (like ECR) is ready.
   provision-infrastructure:
     name: Provision Infrastructure
     runs-on: ubuntu-latest
     steps:
       - name: Check out code
         uses: actions/checkout@v3
-
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v2
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ap-south-1
-
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v2
-
       - name: Terraform Init
         run: terraform init
         working-directory: ./infrastructure
-
       - name: Terraform Apply
         run: terraform apply -auto-approve
         working-directory: ./infrastructure
 
   # JOB 2: Build and Push Docker Image
-  # This job runs after the infrastructure is ready.
-  # It builds our app and pushes the container to ECR.
   build-and-push-image:
     name: Build and Push Docker Image
     runs-on: ubuntu-latest
     needs: provision-infrastructure
-    # We define outputs here to pass the image details to the deploy job
     outputs:
       image_tag: ${{ steps.build-image.outputs.image_tag }}
       ecr_registry: ${{ steps.login-ecr.outputs.registry }}
     steps:
       - name: Check out code
         uses: actions/checkout@v3
-
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v2
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ap-south-1
-
       - name: Log in to Amazon ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v1
-
       - name: Build and push Docker image to ECR
         id: build-image
         env:
@@ -73,41 +60,28 @@ jobs:
         run: |
           docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG ./app
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
-          # Use GITHUB_OUTPUT to set the output for other jobs
           echo "image_tag=${{ github.sha }}" >> $GITHUB_OUTPUT
 
-    # JOB 3: Deploy to EKS
-  # This job runs last, after the infrastructure is ready AND the image has been pushed.
+  # JOB 3: Deploy to EKS
   deploy-to-eks:
     name: Deploy to EKS with Helm
     runs-on: ubuntu-latest
     needs: [provision-infrastructure, build-and-push-image]
-
-    # IMPORTANT: We need to grant the job permissions to get a token from GitHub's OIDC provider.
     permissions:
       id-token: write
       contents: read
-
     steps:
       - name: Check out code
         uses: actions/checkout@v3
-
-      # This is the ONLY credential step needed. It uses OIDC to assume our secure role.
       - name: Configure AWS credentials using OIDC
         uses: aws-actions/configure-aws-credentials@v2
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
           aws-region: ap-south-1
-          role-duration-seconds: 1200
-
       - name: Set up Kubeconfig for EKS
         run: aws eks update-kubeconfig --name penta-ai-test --region ap-south-1
-
       - name: Set up Helm
         uses: azure/setup-helm@v3
-        with:
-          version: v3.12.0
-
       - name: Deploy application with Helm
         run: |
           helm upgrade --install penta-portfolio ./helm/penta-portfolio \
