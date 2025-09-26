@@ -53,6 +53,12 @@ resource "aws_iam_role_policy_attachment" "ec2_container_registry_read_only" {
   role       = aws_iam_role.eks_node_role.name
 }
 # --- End of Node Policies ---
+# --- ADD THIS FINAL BLOCK ---
+resource "aws_iam_role_policy_attachment" "ssm_read_only_access" {
+  policy_arn = "arn:aws:iam::aws:policy/AmazonSSMReadOnlyAccess"
+  role       = aws_iam_role.eks_node_role.name
+}
+# --- END OF BLOCK TO ADD ---
 
 
 # Create the EKS Cluster
