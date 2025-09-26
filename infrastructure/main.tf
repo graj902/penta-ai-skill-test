@@ -23,3 +23,21 @@ module "eks" {
   vpc_id             = module.vpc.vpc_id
   private_subnet_ids = module.vpc.private_subnet_ids
 }
+# infrastructure/main.tf
+
+# ... (your existing vpc and eks module blocks) ...
+
+module "rds" {
+  source = "./modules/rds"
+
+  project_name       = var.project_name
+  vpc_id             = module.vpc.vpc_id
+  private_subnet_ids = module.vpc.private_subnet_ids
+  
+  # Connect the RDS security to the EKS security
+  eks_node_security_group_id = module.eks.cluster_security_group_id
+
+  # Pass the credentials
+  db_username = var.db_username
+  db_password = var.db_password
+}
