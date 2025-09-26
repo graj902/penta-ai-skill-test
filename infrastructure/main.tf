@@ -55,3 +55,13 @@ module "elasticache" {
   # Reuse the same EKS security group to grant access
   eks_node_security_group_id = module.eks.cluster_security_group_id
 }
+
+# infrastructure/main.tf
+
+# ... (your existing vpc, eks, rds, and elasticache module blocks) ...
+
+module "ecr" {
+  source = "./modules/ecr"
+
+  repository_name = "penta-portfolio-app" # This MUST match the name in the GitHub workflow
+}
