@@ -34,8 +34,9 @@ jobs:
     name: Build and Push Docker Image
     runs-on: ubuntu-latest
     needs: provision-infrastructure
+    # THE ONLY OUTPUT WE NEED is the registry, which is a reliable output from the login action.
     outputs:
-      image_uri: ${{ steps.build-image.outputs.image_uri }}
+      registry: ${{ steps.login-ecr.outputs.registry }}
     steps:
       - name: Check out code
         uses: actions/checkout@v3
@@ -59,9 +60,6 @@ jobs:
           docker build -t $IMAGE_URI ./app
           docker push $IMAGE_URI
 
-          # This is the modern, correct syntax for setting a multi-line output
-          echo "image_uri=$IMAGE_URI" >> "$GITHUB_OUTPUT"
-
   deploy-to-eks:
     name: Deploy to EKS with Helm
     runs-on: ubuntu-latest
@@ -72,16 +70,6 @@ jobs:
     steps:
       - name: Check out code
         uses: actions/checkout@v3
-
-      # Add a fail-fast check
-      - name: Verify Image URI
-        run: |
-          echo "Received Image URI: ${{ needs.build-and-push-image.outputs.image_uri }}"
-          if [ -z "${{ needs.build-and-push-image.outputs.image_uri }}" ]; then
-            echo "Error: Image URI from build job is empty."
-            exit 1
-          fi
-
       - name: Configure AWS credentials using OIDC
         uses: aws-actions/configure-aws-credentials@v2
         with:
@@ -93,12 +81,23 @@ jobs:
         uses: azure/setup-helm@v3
       - name: Deploy application with Helm
         run: |
-          IMAGE_REPO=$(echo "${{ needs.build-and-push-image.outputs.image_uri }}" | cut -d: -f1)
-          IMAGE_TAG=$(echo "${{ needs.build-and-push-image.outputs.image_uri }}" | cut -d: -f2)
+          # Reconstruct the URI using reliable, known values
+          ECR_REGISTRY="${{ needs.build-and-push-image.outputs.registry }}"
+          ECR_REPOSITORY="penta-portfolio-app"
+          IMAGE_TAG="${{ github.sha }}"
+
+          echo "Deploying with Registry: $ECR_REGISTRY"
+          echo "Deploying with Repository: $ECR_REPOSITORY"
+          echo "Deploying with Tag: $IMAGE_TAG"
+
+          # Fail-fast check
+          if [ -z "$ECR_REGISTRY" ]; then
+            echo "Error: ECR Registry from build job is empty."
+            exit 1
+          fi
           
           helm upgrade --install penta-portfolio ./helm/penta-portfolio \
-            --set image.repository=$IMAGE_REPO \
+            --set image.repository=$ECR_REGISTRY/$ECR_REPOSITORY \
             --set image.tag=$IMAGE_TAG \
             --namespace default \
-            --wait
-
+            --wait --debug
