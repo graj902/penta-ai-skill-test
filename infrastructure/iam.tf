@@ -35,19 +35,26 @@ resource "aws_iam_role" "github_actions_deployer_role" {
 
 # --- NEW SECTION TO ADD PERMISSIONS ---
 
-# This is the IAM Policy that defines what the role is allowed to do.
+# infrastructure/iam.tf
+
 resource "aws_iam_policy" "github_actions_eks_policy" {
   name        = "GitHubActionsEKSDeployPolicy"
-  description = "Allows describing the EKS cluster to update kubeconfig"
-  # This policy grants the single permission needed.
+  description = "Allows describing the EKS cluster and getting ECR auth"
   policy = jsonencode({
     Version = "2012-10-17",
     Statement = [
       {
         Action   = "eks:DescribeCluster",
         Effect   = "Allow",
-        Resource = module.eks.cluster_arn # Grabs the ARN from our EKS module output
+        Resource = module.eks.cluster_arn
+      },
+      # --- ADD THIS NEW STATEMENT ---
+      {
+        Action   = "ecr:GetAuthorizationToken",
+        Effect   = "Allow",
+        Resource = "*" # This action does not support resource-level permissions
       }
+      # --- END OF NEW STATEMENT ---
     ]
   })
 }
