@@ -34,9 +34,6 @@ jobs:
     name: Build and Push Docker Image
     runs-on: ubuntu-latest
     needs: provision-infrastructure
-    # THE ONLY OUTPUT WE NEED is the registry, which is a reliable output from the login action.
-    outputs:
-      registry: ${{ steps.login-ecr.outputs.registry }}
     steps:
       - name: Check out code
         uses: actions/checkout@v3
@@ -56,9 +53,8 @@ jobs:
           ECR_REPOSITORY: penta-portfolio-app
           IMAGE_TAG: ${{ github.sha }}
         run: |
-          IMAGE_URI=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
-          docker build -t $IMAGE_URI ./app
-          docker push $IMAGE_URI
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG ./app
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
 
   deploy-to-eks:
     name: Deploy to EKS with Helm
@@ -75,26 +71,23 @@ jobs:
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
           aws-region: ap-south-1
+      
+      # THIS STEP GETS THE REGISTRY ADDRESS INDEPENDENTLY
+      - name: Log in to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v1
+        
       - name: Set up Kubeconfig for EKS
         run: aws eks update-kubeconfig --name penta-ai-test --region ap-south-1
       - name: Set up Helm
         uses: azure/setup-helm@v3
       - name: Deploy application with Helm
         run: |
-          # Reconstruct the URI using reliable, known values
-          ECR_REGISTRY="${{ needs.build-and-push-image.outputs.registry }}"
+          ECR_REGISTRY="${{ steps.login-ecr.outputs.registry }}"
           ECR_REPOSITORY="penta-portfolio-app"
           IMAGE_TAG="${{ github.sha }}"
-
-          echo "Deploying with Registry: $ECR_REGISTRY"
-          echo "Deploying with Repository: $ECR_REPOSITORY"
-          echo "Deploying with Tag: $IMAGE_TAG"
-
-          # Fail-fast check
-          if [ -z "$ECR_REGISTRY" ]; then
-            echo "Error: ECR Registry from build job is empty."
-            exit 1
-          fi
+          
+          echo "Deploying with full image URI: $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
           
           helm upgrade --install penta-portfolio ./helm/penta-portfolio \
             --set image.repository=$ECR_REGISTRY/$ECR_REPOSITORY \
