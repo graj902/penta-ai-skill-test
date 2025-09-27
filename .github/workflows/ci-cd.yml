@@ -58,6 +58,7 @@ jobs:
           IMAGE_URI=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
           docker build -t $IMAGE_URI ./app
           docker push $IMAGE_URI
+
           # This is the modern, correct syntax for setting a multi-line output
           echo "image_uri=$IMAGE_URI" >> "$GITHUB_OUTPUT"
 
@@ -99,4 +100,5 @@ jobs:
             --set image.repository=$IMAGE_REPO \
             --set image.tag=$IMAGE_TAG \
             --namespace default \
-            --wait --debug
+            --wait
+
